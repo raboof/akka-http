@@ -7,6 +7,8 @@ package akka.http.scaladsl.model
 import StatusCodes.ClientError
 import akka.annotation.InternalApi
 
+import scala.runtime.AbstractFunction2
+
 /**
  * Two-level model of error information.
  * The summary should explain what is wrong with the request or response *without* directly
@@ -118,8 +120,11 @@ object EntityStreamException {
  * The limit can also be configured in code, by calling [[HttpEntity#withSizeLimit]]
  * on the entity before materializing its `dataBytes` stream.
  */
-final case class EntityStreamSizeException(limit: Long, actualSize: Option[Long] = None) extends ExceptionWithErrorInfo(EntityStreamSizeException.errorInfo(limit, actualSize))
-object EntityStreamSizeException {
+final case class EntityStreamSizeException(limit: Long, actualSize: Option[Long] = None)
+  extends ExceptionWithErrorInfo(EntityStreamSizeException.errorInfo(limit, actualSize)) {
+  override def getMessage: String = super.getMessage // for bin compat
+}
+object EntityStreamSizeException /* for bin compat */ extends AbstractFunction2[Long, Option[Long], EntityStreamSizeException] {
   private[EntityStreamSizeException] def errorInfo(limit: Long, actualSize: Option[Long]): ErrorInfo =
     ErrorInfo(
       "The incoming entity size exceeded the size limit of the server.",
