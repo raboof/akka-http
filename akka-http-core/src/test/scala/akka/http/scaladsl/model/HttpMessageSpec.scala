@@ -25,7 +25,7 @@ class HttpMessageSpec extends AnyWordSpec with Matchers {
     val thrown = the[IllegalUriException] thrownBy
       HttpRequest.effectiveUri(Uri("/relative"), hostHeader.toList, securedConnection = false, Host(""))
 
-    thrown should have message
+    thrown.info.formatPretty shouldEqual
       s"Cannot establish effective URI of request to `/relative`, request has a relative URI and $details: " +
       "consider setting `akka.http.server.default-host-header`"
   }
