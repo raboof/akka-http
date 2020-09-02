@@ -19,7 +19,7 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.headers.{ CacheDirectives, RawHeader }
 import akka.http.scaladsl.settings.ServerSettings
 import akka.stream.impl.io.ByteStringParser.ByteReader
-import akka.stream.scaladsl.{ BidiFlow, Flow, Sink, Source, SourceQueueWithComplete }
+import akka.stream.scaladsl.{ BidiFlow, Flow, Sink, Source, SourceQueue, SourceQueueWithComplete }
 import akka.stream.testkit.TestPublisher.ManualProbe
 import akka.stream.testkit.{ TestPublisher, TestSubscriber }
 import akka.stream.OverflowStrategy
@@ -36,6 +36,9 @@ import scala.concurrent.duration._
 import FrameEvent._
 import akka.event.Logging
 import akka.http.scaladsl.Http2
+import akka.http.scaladsl.model.HttpEntity.{ ChunkStreamPart, Chunked }
+import akka.http.scaladsl.model.HttpMethods.POST
+import akka.http.scaladsl.model.StatusCodes.OK
 import akka.stream.Attributes
 import akka.stream.Attributes.LogLevels
 import akka.stream.testkit.scaladsl.StreamTestKit
@@ -940,6 +943,34 @@ class Http2ServerSpec extends AkkaSpecWithMaterializer("""
     "respect the substream state machine" should {
       abstract class SimpleRequestResponseRoundtripSetup extends TestSetup with RequestResponseProbes
 
+      "don't RST the whole stream just because we're no longer interested in the incoming side" in new SimpleRequestResponseRoundtripSetup with AutomaticHpackWireSupport {
+        sendHEADERS(1, endStream = false, endHeaders = true, encodeHeaderPairs(headerPairs(POST, "https://test.example/upload", ContentTypes.`application/octet-stream`)))
+        val request = expectRequest()
+        request.entity.dataBytes
+          .watchTermination()((m, done) => 42)
+          .runWith(Sink.cancelled)
+
+        sendDATA(1, endStream = false, ByteString("Some data that should be consumed but ignored"))
+
+        val responseQueueP = Promise[SourceQueueWithComplete[ChunkStreamPart]]()
+        val responseData = Source.queue[ChunkStreamPart](100, OverflowStrategy.fail)
+          .mapMaterializedValue(queue => {
+            responseQueueP.success(queue)
+          })
+        emitResponse(1, HttpResponse(OK, entity = Chunked(ContentTypes.`application/octet-stream`, responseData)))
+        expectWindowUpdate()
+        expectDecodedResponseHEADERS(1, endStream = false)
+
+        val responseQueue = Await.result(responseQueueP.future, 10.seconds)
+        responseQueue.offer(ChunkStreamPart("Response data"))
+        expectDATA(1, endStream = false, ByteString("Response data"))
+
+        responseQueue.complete()
+        expectDATA(1, endStream = true, ByteString())
+
+        expectGracefulCompletion()
+      }
+
       "reject other frame than HEADERS/PUSH_PROMISE in idle state with connection-level PROTOCOL_ERROR (5.1)" in new SimpleRequestResponseRoundtripSetup {
         sendDATA(9, endStream = true, HPackSpecExamples.C41FirstRequestWithHuffman)
         expectGOAWAY()
@@ -1177,14 +1208,17 @@ class Http2ServerSpec extends AkkaSpecWithMaterializer("""
     def encodeHeaders(headers: Seq[HttpHeader]): ByteString =
       encodeHeaderPairs(headerPairsForHeaders(headers))
 
-    def headerPairsForRequest(request: HttpRequest): Seq[(String, String)] =
+    def headerPairs(method: HttpMethod, uri: Uri, contentType: ContentType): Seq[(String, String)] =
       Seq(
-        ":method" -> request.method.value,
-        ":scheme" -> request.uri.scheme.toString,
-        ":path" -> request.uri.path.toString,
-        ":authority" -> request.uri.authority.toString.drop(2),
-        "content-type" -> request.entity.contentType.render(new StringRendering).get
-      ) ++
+        ":method" -> method.value,
+        ":scheme" -> uri.scheme,
+        ":path" -> uri.path.toString,
+        ":authority" -> uri.authority.toString.drop(2),
+        "content-type" -> contentType.render(new StringRendering).get
+      )
+
+    def headerPairsForRequest(request: HttpRequest): Seq[(String, String)] =
+      headerPairs(request.method, request.uri, request.entity.contentType) ++
         request.entity.contentLengthOption.flatMap {
           case len if len != 0 => Some("content-length" -> len.toString)
           case _               => None
