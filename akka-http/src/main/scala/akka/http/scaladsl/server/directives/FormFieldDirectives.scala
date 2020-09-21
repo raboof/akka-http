@@ -6,8 +6,11 @@ package akka.http.scaladsl.server
 package directives
 
 import akka.annotation.InternalApi
+import akka.http.ccompat.pre213
+import akka.http.ccompat.since213
 import akka.http.impl.util._
 import akka.http.scaladsl.common._
+import akka.http.scaladsl.model.ExceptionWithErrorInfo
 import akka.http.scaladsl.server.directives.RouteDirectives._
 import akka.http.scaladsl.unmarshalling.Unmarshaller.UnsupportedContentTypeException
 import akka.http.scaladsl.util.FastFuture._
@@ -16,9 +19,8 @@ import scala.annotation.tailrec
 import scala.collection.immutable
 import scala.concurrent.Future
 import scala.util.{ Failure, Success }
+
 import BasicDirectives._
-import akka.http.ccompat.pre213
-import akka.http.ccompat.since213
 
 /**
  * @groupname form Form field directives
@@ -107,10 +109,13 @@ object FormFieldDirectives extends FormFieldDirectives {
         Future.sequence(fields)
       }
     }.flatMap { sequenceF =>
-      onComplete(sequenceF).flatMap {
-        case Success(x)                                  => provide(x)
-        case Failure(x: UnsupportedContentTypeException) => reject(UnsupportedRequestContentTypeRejection(x.supported, x.actualContentType))
-        case Failure(x)                                  => reject(MalformedRequestContentRejection(x.getMessage.nullAsEmpty, x))
+      extractSettings.flatMap { settings =>
+        onComplete(sequenceF).flatMap {
+          case Success(x) => provide(x)
+          case Failure(x: UnsupportedContentTypeException) => reject(UnsupportedRequestContentTypeRejection(x.supported, x.actualContentType))
+          case Failure(x: ExceptionWithErrorInfo) => reject(MalformedRequestContentRejection(x.info.format(settings.verboseErrorMessages), x))
+          case Failure(x) => reject(MalformedRequestContentRejection(x.getMessage.nullAsEmpty, x))
+        }
       }
     }
   }

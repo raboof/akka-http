@@ -71,7 +71,7 @@ object ErrorInfo {
 }
 
 /** Marker for exceptions that provide an ErrorInfo */
-abstract class ExceptionWithErrorInfo(val info: ErrorInfo, cause: Throwable) extends RuntimeException(info.format(withDetail = false), cause) {
+abstract class ExceptionWithErrorInfo(val info: ErrorInfo, cause: Throwable) extends RuntimeException(info.format(withDetail = true), cause) {
   def this(info: ErrorInfo) = this(info, null)
 }
 
