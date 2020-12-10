@@ -76,6 +76,17 @@ trait OutgoingConnectionBuilder {
   def http2WithPriorKnowledge(): Flow[HttpRequest, HttpResponse, Future[OutgoingConnection]]
 
   /**
+   * Create a flow that when materialized creates a managed HTTP/2 with 'prior knowledge' plaintext connection with a default port 80
+   *
+   * The connection will be re-established as needed.
+   *
+   * Note that the responses are not guaranteed to arrive in the same order as the requests go out (In the case of a HTTP/2 connection)
+   * so therefore requests needs to have a [[akka.http.scaladsl.model.RequestResponseAssociation]]
+   * which Akka HTTP will carry over to the corresponding response for a request.
+   */
+  def managedPersistentHttp2WithPriorKnowledge(): Flow[HttpRequest, HttpResponse, NotUsed] // FIXME: provide some API
+
+  /**
    * Use a custom [[HttpsConnectionContext]] for the connection.
    * Only applicable for `https()` and `http2()`, overrides `defaultHttpsContext`
    */
