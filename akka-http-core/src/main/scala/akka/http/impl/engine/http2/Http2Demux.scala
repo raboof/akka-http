@@ -379,7 +379,7 @@ private[http2] abstract class Http2Demux(http2Settings: Http2CommonSettings, ini
       override def onMultiplexerIdle(): Unit = if (safeToComplete) complete()
 
       private def safeToComplete = {
-        if (isServer) completing && multiplexer.isIdle && activeStreamCount() == 0
+        if (isServer) completing && !multiplexer.hasPendingData && activeStreamCount() == 0
         else completing && activeStreamCount() == 0
       }
 

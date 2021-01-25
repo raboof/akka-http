@@ -37,7 +37,7 @@ private[http2] trait Http2Multiplexer {
 
   def maxBytesToBufferPerSubstream: Int
 
-  def isIdle: Boolean
+  def hasPendingData: Boolean
 }
 
 @InternalApi
@@ -127,7 +127,13 @@ private[http2] trait Http2MultiplexerSupport { logic: GraphStageLogic with Stage
 
       private var _state: MultiplexerState = Idle
 
-      def isIdle: Boolean = _state == Idle
+      def hasPendingData: Boolean = _state match {
+        case Idle                                    => false
+        case WaitingForData                          => false
+        case s: WaitingForNetworkToSendControlFrames => s.sendableOutstreams.nonEmpty
+        case _: WaitingForNetworkToSendData          => true
+        case _: WaitingForConnectionWindow           => true
+      }
 
       private def updateState(transition: MultiplexerState => MultiplexerState): Unit = {
         val oldState = _state
@@ -224,7 +230,7 @@ private[http2] trait Http2MultiplexerSupport { logic: GraphStageLogic with Stage
             this
       }
 
-      private[http2] abstract class WithSendableOutStreams extends MultiplexerState {
+      private[http2] sealed abstract class WithSendableOutStreams extends MultiplexerState {
         def sendableOutstreams: immutable.Set[Int]
         def withSendableOutstreams(sendableOutStreams: immutable.Set[Int]): WithSendableOutStreams
 
